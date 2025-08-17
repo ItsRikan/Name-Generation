@@ -1,0 +1,100 @@
+g=Generator().manual_seed(27654839)
+C=torch.randn((vocab_size,embedding_size),generator=g)
+
+# For first net (Sigmoid function)
+W11=torch.randn((embedding_size * block_size,hidden_neurons),generator=g) # * (1/(embedding_size * block_size))**0.5
+b11=torch.randn((hidden_neurons,),generator=g)# * (2/(hidden_neurons))**0.5
+
+W12=torch.randn((hidden_neurons,embedding_size * block_size),generator=g)# * (2/(hidden_neurons))**0.5
+b12=torch.randn((embedding_size * block_size,),generator=g) #* (2/(embedding_size * block_size))**0.5
+
+
+W21=torch.randn((embedding_size * block_size * 2,hidden_neurons),generator=g)# * 0.5
+b21=torch.randn((hidden_neurons,),generator=g)# * (2/hidden_neurons)**0.5
+
+W22=torch.randn((hidden_neurons,vocab_size),generator=g) * 0.01
+b22=torch.randn((vocab_size,),generator=g) * 0
+
+nbias=torch.zeros((hidden_neurons))
+ngains=torch.ones((hidden_neurons))
+parameters=[C,W11,b11,W12,b12,W21,b21,W22,b22,nbias,ngains]
+batch=100
+for p in parameters:
+    p.requires_grad=True
+for i in range (60000):
+    ix=torch.randint(0,x_train.shape[0],(batch,))
+    Ct=torch.cat(C[x_train[ix]].unbind(1),1)
+    lr=0.1 if i<30000 else 0.01
+    
+    z11 = Ct @ W11 + b11
+    z11= ngains * ((z11 - z11.mean(0))/z11.std(0)) + nbias
+    a11 = z11.tanh()
+    z12 = a11 @ W12 + b12
+
+    a12sig = z12.sigmoid()
+    a12tanh=z12.tanh()
+
+    It = a12sig * a12tanh
+
+    Ct= (Ct * a12sig) + It
+    Ot= torch.cat((Ct.tanh() , a12sig),dim=1)
+    
+    z21 = Ot @ W21 + b21
+    a21=z21.tanh()
+    z22 = a21 @ W22 + b22
+    loss=F.cross_entropy(z22,y_train[ix])
+    
+    for p in parameters:
+        p.grad=None
+    loss.backward()
+    for p in parameters:
+        p.data -= lr * p.grad
+
+        
+print(loss.item())
+    
+with torch.no_grad():
+    emb=torch.cat(C[x_train].unbind(1),1)
+    zemb=emb @ W11 + b11
+    bnstd=zemb.std(0)
+    bnmean=zemb.mean(0)
+Ct=torch.cat(C[x_train].unbind(1),1)
+z11 = Ct @ W11 + b11
+z11= ngains * ((z11 - bnmean)/bnstd) + nbias
+a11 = z11.tanh()
+z12 = a11 @ W12 + b12
+a12sig = z12.sigmoid()
+a12tanh=z12.tanh()
+It = a12sig * a12tanh
+Ct= (Ct * a12sig) + It
+Ot= torch.cat((Ct.tanh() , a12sig),dim=1)
+z21 = Ot @ W21 + b21
+a21=z21.tanh()
+z22 = a21 @ W22 + b22
+loss=F.cross_entropy(z22,y_train)
+print(loss.item())
+context = [0] * block_size
+Ct = torch.zeros((1, embedding_size * block_size))
+name = ''
+
+while True:
+    Z = torch.cat(C[context].unbind(1), dim=0).unsqueeze(0)
+    z11 = Z @ W11 + b11
+    z11= ngains * ((z11 - bnmean)/bnstd) + nbias
+    a11 = z11.tanh()
+    z12 = a11 @ W12 + b12
+    a12sig = z12.sigmoid()
+    a12tanh = z12.tanh()
+    It = a12sig * a12tanh
+    Ct = (Ct * a12sig) + It
+    Ot = torch.cat((Ct.tanh(), a12sig), dim=1)
+    z21 = Ot @ W21 + b21
+    a21 = z21.tanh()
+    z22 = a21 @ W22 + b22
+    a22 = z22.softmax(dim=1)
+    idx = torch.multinomial(a22, num_samples=1).item()
+    if idx == 0:
+        break
+    name += itos[idx]
+    context = context[1:] + [idx]
+print(name)
